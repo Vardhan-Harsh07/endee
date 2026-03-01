@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EndeeSearch — Semantic Search Engine</title>
+    <style>
+        :root { --primary: #6366f1; --primary-dark: #4f46e5; --bg: #f8fafc; --card: #fff; --text: #1e293b; --muted: #64748b; --border: #e2e8f0; --green: #10b981; --red: #ef4444; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+        .container { max-width: 820px; margin: 0 auto; padding: 2rem 1rem; }
+        header { text-align: center; margin-bottom: 2rem; }
+        header h1 { font-size: 2.2rem; background: linear-gradient(135deg, #6366f1, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .subtitle { color: var(--muted); margin-top: 0.25rem; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .card h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+
+        /* Search */
+        .search-box { display: flex; gap: 0.5rem; }
+        .search-box input { flex: 1; padding: 0.85rem 1rem; border: 2px solid var(--border); border-radius: 10px; font-size: 1rem; outline: none; transition: border-color 0.2s; }
+        .search-box input:focus { border-color: var(--primary); }
+        .search-box button { padding: 0.85rem 1.75rem; background: var(--primary); color: #fff; border: none; border-radius: 10px; font-size: 1rem; cursor: pointer; font-weight: 600; transition: background 0.2s; }
+        .search-box button:hover { background: var(--primary-dark); }
+
+        /* Results */
+        .result { padding: 1rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.75rem; transition: box-shadow 0.2s; }
+        .result:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .result-header { display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
+        .result-source { font-size: 0.8rem; color: var(--primary); font-weight: 600; }
+        .result-score { font-size: 0.75rem; background: #f0fdf4; color: var(--green); padding: 0.15rem 0.5rem; border-radius: 4px; }
+        .result-text { font-size: 0.92rem; color: #334155; }
+        .no-results { text-align: center; color: var(--muted); padding: 2rem; font-style: italic; }
+
+        /* Upload */
+        .upload-area { border: 2px dashed var(--border); border-radius: 8px; padding: 1.5rem; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .upload-area:hover, .upload-area.dragover { border-color: var(--primary); background: #eef2ff; }
+        .upload-area .link { color: var(--primary); cursor: pointer; text-decoration: underline; }
+        .upload-area .hint { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+        .status { margin-top: 0.75rem; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.9rem; }
+        .status.ok { background: #d1fae5; color: #065f46; }
+        .status.err { background: #fee2e2; color: #991b1b; }
+        .status.load { background: #fef3c7; color: #92400e; }
+        .hidden { display: none; }
+
+        /* Docs */
+        .doc-item { display: flex; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        .doc-item:last-child { border: none; }
+
+        /* Footer */
+        footer { text-align: center; font-size: 0.8rem; margin-top: 1rem; }
+        .health.ok { color: var(--green); }
+        .health.bad { color: var(--red); }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>🔍 EndeeSearch</h1>
+        <p class="subtitle">Semantic Search Engine powered by Endee Vector Database</p>
+    </header>
+
+    <!-- Search -->
+    <div class="card">
+        <h2>Search Documents</h2>
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Search by meaning, not keywords..." autocomplete="off">
+            <button onclick="doSearch()">Search</button>
+        </div>
+        <div id="results" style="margin-top:1rem;"></div>
+    </div>
+
+    <!-- Upload -->
+    <div class="card">
+        <h2>📄 Upload Document</h2>
+        <div class="upload-area" id="dropZone">
+            <input type="file" id="fileInput" accept=".txt,.md,.pdf,.csv" hidden>
+            <p>Drop a file here or <span class="link" onclick="document.getElementById('fileInput').click()">browse</span></p>
+            <p class="hint">Supports: TXT, MD, PDF, CSV</p>
+        </div>
+        <div id="uploadStatus" class="status hidden"></div>
+    </div>
+
+    <!-- Documents -->
+    <div class="card">
+        <h2>📁 Indexed Documents</h2>
+        <div id="docsList"><p style="color:var(--muted);font-style:italic;">No documents indexed yet.</p></div>
+    </div>
+
+    <footer><div id="health" class="health">Checking...</div></footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+async function doSearch() {
+    const q = $('searchInput').value.trim();
+    if (!q) return;
+    $('results').innerHTML = '<p class="no-results">Searching...</p>';
+    try {
+        const res = await fetch('/api/search', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({query: q})
+        });
+        const data = await res.json();
+        if (!res.ok) { $('results').innerHTML = `<p class="no-results">Error: ${data.detail}</p>`; return; }
+        if (!data.results.length) { $('results').innerHTML = '<p class="no-results">No results found. Try uploading some documents first.</p>'; return; }
+        $('results').innerHTML = data.results.map(r => `
+            <div class="result">
+                <div class="result-header">
+                    <span class="result-source">📄 ${r.source}</span>
+                    <span class="result-score">Score: ${r.score}</span>
+                </div>
+                <div class="result-text">${r.text}</div>
+            </div>
+        `).join('');
+    } catch(e) { $('results').innerHTML = `<p class="no-results">Error: ${e.message}</p>`; }
+}
+
+$('searchInput').addEventListener('keypress', e => { if (e.key === 'Enter') doSearch(); });
+
+// Upload
+const dz = $('dropZone'), fi = $('fileInput');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('dragover'); if (e.dataTransfer.files.length) upload(e.dataTransfer.files[0]); });
+fi.addEventListener('change', () => { if (fi.files.length) upload(fi.files[0]); });
+
+async function upload(file) {
+    const s = $('uploadStatus');
+    s.className = 'status load'; s.classList.remove('hidden'); s.textContent = `Uploading ${file.name}...`;
+    const fd = new FormData(); fd.append('file', file);
+    try {
+        const res = await fetch('/api/upload', {method:'POST', body:fd});
+        const data = await res.json();
+        if (res.ok) { s.className='status ok'; s.textContent=`✅ ${data.message} (${data.chunks} chunks)`; loadDocs(); checkHealth(); }
+        else { s.className='status err'; s.textContent=`❌ ${data.detail}`; }
+    } catch(e) { s.className='status err'; s.textContent=`❌ ${e.message}`; }
+}
+
+async function loadDocs() {
+    try {
+        const res = await fetch('/api/documents');
+        const data = await res.json();
+        const el = $('docsList');
+        if (!data.documents.length) { el.innerHTML='<p style="color:var(--muted);font-style:italic;">No documents indexed yet.</p>'; return; }
+        el.innerHTML = data.documents.map(d => `<div class="doc-item"><span>📄 ${d.name}</span><span>${d.chunks} chunks</span></div>`).join('');
+    } catch(e) {}
+}
+
+async function checkHealth() {
+    try {
+        const res = await fetch('/api/health');
+        const d = await res.json();
+        const el = $('health');
+        el.textContent = d.endee_connected ? `✅ Connected to Endee | Model: ${d.model} | Docs: ${d.documents}` : '⚠️ Endee not connected';
+        el.className = 'health ' + (d.endee_connected ? 'ok' : 'bad');
+    } catch(e) { $('health').textContent='❌ Server unreachable'; $('health').className='health bad'; }
+}
+
+checkHealth(); loadDocs(); setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
